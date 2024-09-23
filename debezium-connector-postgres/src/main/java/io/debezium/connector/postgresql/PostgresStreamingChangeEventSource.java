@@ -11,6 +11,9 @@ import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.debezium.pipeline.EventDispatcher;
+import io.debezium.pipeline.spi.OffsetContext;
+import io.debezium.pipeline.spi.Partition;
 import org.apache.kafka.connect.errors.ConnectException;
 import org.postgresql.core.BaseConnection;
 import org.slf4j.Logger;
@@ -214,7 +217,26 @@ public class PostgresStreamingChangeEventSource implements StreamingChangeEventS
         while (context.isRunning() && (offsetContext.getStreamingStoppingLsn() == null ||
                 (lastCompletelyProcessedLsn.compareTo(offsetContext.getStreamingStoppingLsn()) < 0))) {
 
-            boolean receivedMessage = stream.readPending(message -> processReplicationMessages(partition, offsetContext, stream, message));
+            boolean receivedMessage = stream.readPending(new ReplicationStream.ReplicationMessageProcessor() {
+                @Override
+                public void process(ReplicationMessage message) throws SQLException, InterruptedException {
+                    processReplicationMessages(partition, offsetContext, stream, message);
+                }
+                @Override
+                public EventDispatcher<PostgresPartition, TableId> getEventDispatcher() {
+                    return dispatcher;
+                }
+
+                @Override
+                public PostgresPartition getPartition() {
+                    return partition;
+                }
+
+                @Override
+                public OffsetContext getOffsetContext() {
+                    return offsetContext;
+                }
+            });
 
             probeConnectionIfNeeded();
 

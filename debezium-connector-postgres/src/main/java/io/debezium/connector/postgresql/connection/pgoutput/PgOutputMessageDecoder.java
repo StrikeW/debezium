@@ -26,6 +26,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
 
+import io.debezium.DebeziumException;
+import io.debezium.schema.SchemaChangeEvent;
 import org.postgresql.replication.fluent.logical.ChainedLogicalStreamBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -199,7 +201,18 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
                 handleCommitMessage(buffer, processor);
                 break;
             case RELATION:
-                handleRelationMessage(buffer, typeRegistry);
+                var table = handleRelationMessage(buffer, typeRegistry);
+                var dispatcher = processor.getEventDispatcher();
+                var partition = processor.getPartition();
+                var offsetContext = processor.getOffsetContext();
+                SchemaChangeEvent schemaChangeEvent = SchemaChangeEvent.ofAlter(partition, offsetContext, table.id().catalog(), table.id().schema(), "POSTGRES_DDL", table);
+                dispatcher.dispatchSchemaChangeEvent(partition, offsetContext, table.id(), (receiver -> {
+                    try {
+                        receiver.schemaChangeEvent(schemaChangeEvent);
+                    } catch (Exception e) {
+                        throw new DebeziumException(e);
+                    }
+                }));
                 break;
             case LOGICAL_DECODING_MESSAGE:
                 handleLogicalDecodingMessage(buffer, processor);
@@ -286,7 +299,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
      * @param buffer The replication stream buffer
      * @param typeRegistry The postgres type registry
      */
-    private void handleRelationMessage(ByteBuffer buffer, TypeRegistry typeRegistry) throws SQLException {
+    private Table handleRelationMessage(ByteBuffer buffer, TypeRegistry typeRegistry) throws SQLException {
         int relationId = buffer.getInt();
         String schemaName = readString(buffer);
         String tableName = readString(buffer);
@@ -361,6 +374,7 @@ public class PgOutputMessageDecoder extends AbstractMessageDecoder {
 
         Table table = resolveRelationFromMetadata(new PgOutputRelationMetaData(relationId, schemaName, tableName, columns, primaryKeyColumns));
         decoderContext.getSchema().applySchemaChangesForTable(relationId, table);
+        return table;
     }
 
     private List<io.debezium.relational.Column> getTableColumnsFromDatabase(PostgresConnection connection, DatabaseMetaData databaseMetadata, TableId tableId)

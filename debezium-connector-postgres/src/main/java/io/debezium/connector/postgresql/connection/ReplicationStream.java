@@ -9,6 +9,11 @@ package io.debezium.connector.postgresql.connection;
 import java.sql.SQLException;
 import java.util.concurrent.ExecutorService;
 
+import io.debezium.connector.postgresql.PostgresPartition;
+import io.debezium.pipeline.EventDispatcher;
+import io.debezium.pipeline.spi.OffsetContext;
+import io.debezium.pipeline.spi.Partition;
+import io.debezium.relational.TableId;
 import org.postgresql.replication.PGReplicationStream;
 
 /**
@@ -26,6 +31,21 @@ public interface ReplicationStream extends AutoCloseable {
          * @param message The replication message, never {@code null}.
          */
         void process(ReplicationMessage message) throws SQLException, InterruptedException;
+
+        /**
+         * Return the Debezium event dispatcher to be used for dispatching schema change events.
+         */
+        default EventDispatcher<PostgresPartition, TableId> getEventDispatcher() {
+            return null;
+        }
+
+        default PostgresPartition getPartition() {
+            return null;
+        }
+
+        default OffsetContext getOffsetContext() {
+            return null;
+        }
     }
 
     /**
